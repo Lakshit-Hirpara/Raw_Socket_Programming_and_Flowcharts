@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Raw Socket Programs - Flowcharts</title>
+    <title>IPv4 Raw Socket Programs - Study Guide</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
@@ -34,52 +34,53 @@
 
     <div class="max-w-5xl mx-auto space-y-12">
         <div class="text-center">
-            <h1 class="text-4xl font-bold text-blue-700 mb-2">Socket Programming Flowcharts</h1>
-            <p class="text-gray-600">Visual logic for Layer-2 Ethernet and ARP raw-socket programs.</p>
+            <h1 class="text-4xl font-bold text-blue-700 mb-2">IPv4 Socket Programming Flowcharts</h1>
+            <p class="text-gray-600">Visual logic for Layer-3 IPv4 raw-socket programs.</p>
+        </div>
+
+        <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-6 shadow-sm rounded-r-lg">
+            <h3 class="text-red-800 font-bold text-sm mb-1">🚨 Universal Safety Note</h3>
+            <p class="text-sm text-red-700">
+                Raw-socket programs must be executed only on the student’s own Linux VM or an authorized laboratory network. Students must not capture or inject frames on unauthorized networks.
+            </p>
         </div>
 
         <!-- Flowchart 1 -->
         <div class="bg-white p-8 rounded-xl shadow-md">
-            <h2 class="text-2xl font-semibold mb-4 border-b pb-2">1. raw_ethernet_capture.c</h2>
-            <p class="mb-4 text-gray-600">Captures all incoming Ethernet frames and parses basic header information.</p>
+            <h2 class="text-2xl font-semibold mb-4 border-b pb-2">1. raw_ip_receive_process.c</h2>
+            <p class="mb-4 text-gray-600">Captures incoming IPv4 packets and processes header fields (Version, TTL, Protocol, IP Addresses).</p>
             
-            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-                <h3 class="text-yellow-800 font-bold text-sm mb-1">⚠️ Warnings & Safety</h3>
-                <ul class="list-disc list-inside text-sm text-yellow-700">
-                    <li><strong>Root Privileges Required:</strong> Raw sockets bypass the OS networking stack. You MUST run this with <code>sudo</code>.</li>
-                    <li><strong>Authorized Networks Only:</strong> Only capture traffic on your personal VM or authorized lab environment.</li>
-                </ul>
-            </div>
-
             <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
                 <h3 class="text-blue-800 font-bold text-sm mb-1">⚙️ Execution Steps</h3>
                 <ol class="list-decimal list-inside text-sm text-blue-700 font-mono">
-                    <li>gcc raw_ethernet_capture.c -o raw_ethernet_capture</li>
-                    <li>sudo ./raw_ethernet_capture</li>
-                    <li><span class="text-gray-500 italic"># Press Ctrl+C to stop capturing frames</span></li>
+                    <li>gcc -Wall -Wextra raw_ip_receive_process.c -o raw_ip_receive_process</li>
+                    <li>sudo ./raw_ip_receive_process &lt;interface-name&gt;</li>
+                    <li><span class="text-gray-500 italic"># E.g.: sudo ./raw_ip_receive_process enp0s3</span></li>
+                    <li><span class="text-gray-500 italic"># Generate traffic in another terminal: ping -c 4 8.8.8.8</span></li>
                 </ol>
             </div>
 
             <h3 class="text-lg font-semibold mb-2 text-gray-700">Flowchart Logic</h3>
             <div class="mermaid mb-6">
                 graph TD
-                    A([Start]) --> B[Create Raw Socket<br/>AF_PACKET, ETH_P_ALL]
-                    B --> C{Socket Created?}
-                    C -- No --> D[Print Error & Exit]
-                    C -- Yes --> E[Enter while true loop]
-                    E --> F[Receive Frame using recvfrom]
-                    F --> G[Extract Ethernet Header]
-                    G --> H[Print Dest MAC & Source MAC]
-                    H --> I[Extract EtherType]
-                    I --> J{Check EtherType}
-                    J -- 0x0800 --> K[Print 'IPv4']
-                    J -- 0x0806 --> L[Print 'ARP']
-                    J -- 0x86DD --> M[Print 'IPv6']
-                    J -- Other --> N[Print 'Other']
-                    K --> E
-                    L --> E
-                    M --> E
-                    N --> E
+                    A([Start]) --> B[Parse CLI: Interface Name]
+                    B --> C[Create Raw Socket<br/>AF_PACKET, ETH_P_IP]
+                    C --> D[Get Interface Index via ioctl]
+                    D --> E[Bind Socket to Interface]
+                    E --> F[Initialize Loop: 10 Packets]
+                    F --> G[Receive Packet via recvfrom]
+                    G --> H{Is Packet Outgoing?}
+                    H -- Yes --> I[Skip Packet]
+                    H -- No --> J{Is Protocol ETH_P_IP?}
+                    J -- No --> I
+                    J -- Yes --> K[Extract IPv4 Header struct]
+                    K --> L[Extract & Print IP fields<br/>Version, Lengths, Protocol, IPs]
+                    L --> M{Is TTL == 0?}
+                    M -- Yes --> N[Print Decision: Drop Packet]
+                    M -- No --> O[Print Decision: Process Packet]
+                    I --> F
+                    N --> F
+                    O --> F
             </div>
             
             <details class="group bg-gray-50 border border-gray-200 rounded-lg mt-4">
@@ -87,75 +88,162 @@
                     💻 View C Source Code
                 </summary>
                 <div class="p-4 border-t border-gray-200 overflow-x-auto text-sm bg-white">
-<pre><code class="language-c">#include &lt;stdio.h&gt;
+<pre><code class="language-c">/*
+Program Name: raw_ip_receive_process.c
+Purpose:
+Capture actual IPv4 packets from a Linux interface and process:
+1. IPv4 version
+2. Header length
+3. Total length
+4. Identification
+5. TTL
+6. Protocol
+7. Header checksum
+8. Source and destination IP addresses
+*/
+#include &lt;stdio.h&gt;
 #include &lt;stdlib.h&gt;
 #include &lt;string.h&gt;
 #include &lt;unistd.h&gt;
-#include &lt;sys/socket.h&gt;
 #include &lt;arpa/inet.h&gt;
-#include &lt;linux/if_packet.h&gt;
+#include &lt;net/if.h&gt;
+#include &lt;netinet/ip.h&gt;
+#include &lt;sys/ioctl.h&gt;
+#include &lt;sys/socket.h&gt;
 #include &lt;linux/if_ether.h&gt;
+#include &lt;linux/if_packet.h&gt;
 
-void print_mac(unsigned char *mac) {
-    for (int i = 0; i &lt; 6; i++) {
-        printf("%02X", mac[i]);
-        if (i &lt; 5) {
-            printf(":");
-        }
+#define BUFFER_SIZE 65536
+#define PACKET_COUNT 10
+
+static int get_interface_index(int socket_fd, const char *interface_name) {
+    struct ifreq request;
+    memset(&amp;request, 0, sizeof(request));
+    strncpy(request.ifr_name, interface_name, IFNAMSIZ - 1);
+    if (ioctl(socket_fd, SIOCGIFINDEX, &amp;request) &lt; 0) {
+        perror("Unable to obtain interface index");
+        return -1;
+    }
+    return request.ifr_ifindex;
+}
+
+static const char *protocol_name(unsigned char protocol) {
+    switch (protocol) {
+        case IPPROTO_ICMP: return "ICMP";
+        case IPPROTO_TCP: return "TCP";
+        case IPPROTO_UDP: return "UDP";
+        default: return "Other";
     }
 }
 
-int main() {
-    int sockfd;
-    unsigned char buffer[65536];
+int main(int argc, char *argv[]) {
+    int socket_fd;
+    int interface_index;
+    unsigned char buffer[BUFFER_SIZE];
 
-    sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-    if (sockfd &lt; 0) {
-        perror("Raw socket creation failed");
-        printf("Try running with sudo.\n");
-        return 1;
+    if (argc != 2) {
+        fprintf(stderr, "Usage: sudo %s &lt;interface-name&gt;\n", argv[0]);
+        return EXIT_FAILURE;
     }
 
-    printf("Capturing Ethernet frames...\n");
-    printf("Press Ctrl+C to stop.\n\n");
+    const char *interface_name = argv[1];
 
-    while (1) {
-        ssize_t data_size = recvfrom(sockfd, buffer, sizeof(buffer), 0, NULL, NULL);
-        if (data_size &lt; 0) {
-            perror("Packet receive failed");
-            close(sockfd);
-            return 1;
+    socket_fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_IP));
+    if (socket_fd &lt; 0) {
+        perror("Raw socket creation failed");
+        fprintf(stderr, "Run the program using sudo.\n");
+        return EXIT_FAILURE;
+    }
+
+    interface_index = get_interface_index(socket_fd, interface_name);
+    if (interface_index &lt; 0) {
+        close(socket_fd);
+        return EXIT_FAILURE;
+    }
+
+    struct sockaddr_ll bind_address;
+    memset(&amp;bind_address, 0, sizeof(bind_address));
+    bind_address.sll_family = AF_PACKET;
+    bind_address.sll_protocol = htons(ETH_P_IP);
+    bind_address.sll_ifindex = interface_index;
+
+    if (bind(socket_fd, (struct sockaddr *)&amp;bind_address, sizeof(bind_address)) &lt; 0) {
+        perror("Socket bind failed");
+        close(socket_fd);
+        return EXIT_FAILURE;
+    }
+
+    printf("Capturing IPv4 packets on %s...\n", interface_name);
+    printf("Generate traffic using ping or a web browser.\n\n");
+
+    for (int packet_number = 1; packet_number &lt;= PACKET_COUNT; packet_number++) {
+        struct sockaddr_ll packet_information;
+        socklen_t information_length = sizeof(packet_information);
+        ssize_t received_length = recvfrom(socket_fd, buffer, sizeof(buffer), 0, (struct sockaddr *)&amp;packet_information, &amp;information_length);
+
+        if (received_length &lt; 0) {
+            perror("Packet reception failed");
+            close(socket_fd);
+            return EXIT_FAILURE;
         }
 
-        struct ethhdr *eth = (struct ethhdr *)buffer;
-
-        printf("----------------------------------\n");
-        printf("Frame Length      : %ld bytes\n", data_size);
-        printf("Destination MAC   : ");
-        print_mac(eth-&gt;h_dest);
-        printf("\nSource MAC        : ");
-        print_mac(eth-&gt;h_source);
-
-        unsigned short ether_type = ntohs(eth-&gt;h_proto);
-        printf("\nEtherType         : 0x%04X", ether_type);
-
-        if (ether_type == ETH_P_IP) {
-            printf(" (IPv4)");
+        if (packet_information.sll_pkttype == PACKET_OUTGOING) {
+            packet_number--;
+            continue;
         }
-        else if (ether_type == ETH_P_ARP) {
-            printf(" (ARP)");
+
+        if ((size_t)received_length &lt; sizeof(struct ethhdr) + sizeof(struct iphdr)) {
+            packet_number--;
+            continue;
         }
-        else if (ether_type == ETH_P_IPV6) {
-            printf(" (IPv6)");
+
+        struct ethhdr *ethernet_header = (struct ethhdr *)buffer;
+        if (ntohs(ethernet_header-&gt;h_proto) != ETH_P_IP) {
+            packet_number--;
+            continue;
         }
-        else {
-            printf(" (Other)");
+
+        struct iphdr *ip_header = (struct iphdr *)(buffer + sizeof(struct ethhdr));
+        unsigned int ip_header_length = ip_header-&gt;ihl * 4U;
+
+        if (ip_header_length &lt; sizeof(struct iphdr)) {
+            printf("Invalid IPv4 header length.\n");
+            continue;
+        }
+
+        char source_ip[INET_ADDRSTRLEN];
+        char destination_ip[INET_ADDRSTRLEN];
+
+        struct in_addr source_address = { .s_addr = ip_header-&gt;saddr };
+        struct in_addr destination_address = { .s_addr = ip_header-&gt;daddr };
+
+        inet_ntop(AF_INET, &amp;source_address, source_ip, sizeof(source_ip));
+        inet_ntop(AF_INET, &amp;destination_address, destination_ip, sizeof(destination_ip));
+
+        printf("========================================\n");
+        printf("IPv4 Packet Number: %d\n", packet_number);
+        printf("========================================\n");
+        printf("Captured length     : %zd bytes\n", received_length);
+        printf("Version             : %u\n", ip_header-&gt;version);
+        printf("Header length       : %u bytes\n", ip_header_length);
+        printf("Total length        : %u bytes\n", ntohs(ip_header-&gt;tot_len));
+        printf("Identification      : %u\n", ntohs(ip_header-&gt;id));
+        printf("TTL                 : %u\n", ip_header-&gt;ttl);
+        printf("Protocol            : %u (%s)\n", ip_header-&gt;protocol, protocol_name(ip_header-&gt;protocol));
+        printf("Header checksum     : 0x%04X\n", ntohs(ip_header-&gt;check));
+        printf("Source IP           : %s\n", source_ip);
+        printf("Destination IP      : %s\n", destination_ip);
+
+        if (ip_header-&gt;ttl == 0) {
+            printf("Decision            : Drop packet; TTL is zero.\n");
+        } else {
+            printf("Decision            : Packet can be processed.\n");
         }
         printf("\n");
     }
 
-    close(sockfd);
-    return 0;
+    close(socket_fd);
+    return EXIT_SUCCESS;
 }
 </code></pre>
                 </div>
@@ -164,305 +252,40 @@ int main() {
 
         <!-- Flowchart 2 -->
         <div class="bg-white p-8 rounded-xl shadow-md">
-            <h2 class="text-2xl font-semibold mb-4 border-b pb-2">2. raw-ethernet-receive-parse.c</h2>
-            <p class="mb-4 text-gray-600">Binds to a specific interface and makes accept/drop decisions based on MAC addresses.</p>
+            <h2 class="text-2xl font-semibold mb-4 border-b pb-2">2. raw_ip_send_process.c</h2>
+            <p class="mb-4 text-gray-600">Constructs and sends an IPv4 packet containing an ICMP Echo Request payload.</p>
             
             <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-                <h3 class="text-yellow-800 font-bold text-sm mb-1">⚠️ Warnings & Safety</h3>
-                <ul class="list-disc list-inside text-sm text-yellow-700">
-                    <li><strong>Exact Interface Name:</strong> You must provide the correct interface name (e.g., <code>eth0</code>, <code>enp0s3</code>). Use the <code>ip link</code> command to find it.</li>
-                    <li><strong>Root Privileges:</strong> Requires <code>sudo</code> to bind to the network interface directly.</li>
-                </ul>
+                <h3 class="text-yellow-800 font-bold text-sm mb-1">⚠️ Network Gateway Note</h3>
+                <p class="text-sm text-yellow-700">
+                    In VirtualBox NAT mode, 10.0.2.2 is commonly the virtual default gateway. Use this as your destination IP if testing internally.
+                </p>
             </div>
 
             <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
                 <h3 class="text-blue-800 font-bold text-sm mb-1">⚙️ Execution Steps</h3>
                 <ol class="list-decimal list-inside text-sm text-blue-700 font-mono">
-                    <li>ip link <span class="text-gray-500 italic"># Identify your interface name</span></li>
-                    <li>gcc raw-ethernet-receive-parse.c -o raw-ethernet-receive-parse</li>
-                    <li>sudo ./raw-ethernet-receive-parse &lt;interface-name&gt;</li>
-                    <li><span class="text-gray-500 italic"># Example: sudo ./raw-ethernet-receive-parse enp0s3</span></li>
+                    <li>gcc -Wall -Wextra raw_ip_send_process.c -o raw_ip_send_process</li>
+                    <li>sudo ./raw_ip_send_process &lt;source-ip&gt; &lt;destination-ip&gt;</li>
+                    <li><span class="text-gray-500 italic"># Example: sudo ./raw_ip_send_process 10.0.2.15 10.0.2.2</span></li>
+                    <li><span class="text-gray-500 italic"># Observe using: sudo tcpdump -ni &lt;interface&gt; icmp</span></li>
                 </ol>
             </div>
 
             <h3 class="text-lg font-semibold mb-2 text-gray-700">Flowchart Logic</h3>
             <div class="mermaid mb-6">
                 graph TD
-                    A([Start]) --> B[Parse Command Line Args<br/>Interface Name]
-                    B --> C[Create Raw Socket]
-                    C --> D[Get Interface MAC & Index via ioctl]
-                    D --> E[Bind Socket to specific Interface]
-                    E --> F[Initialize frameNo = 1]
-                    F --> G{frameNo <= 10?}
-                    G -- No --> H([Close Socket & End])
-                    G -- Yes --> I[Receive Frame]
-                    I --> J[Parse Destination MAC]
-                    J --> K{Dest MAC matches<br/>Device MAC?}
-                    K -- Yes --> L[Print 'MAC Match - Accepted']
-                    K -- No --> M{Is Dest MAC<br/>Broadcast?}
-                    M -- Yes --> N[Print 'Broadcast - Accepted']
-                    M -- No --> O{Is Dest MAC<br/>Multicast?}
-                    O -- Yes --> P[Print 'Multicast - Accepted']
-                    O -- No --> Q[Print 'Mismatch - Dropped']
-                    L --> R[Identify Protocol via EtherType]
-                    N --> R
-                    P --> R
-                    Q --> R
-                    R --> S[Increment frameNo]
-                    S --> G
-            </div>
-
-            <details class="group bg-gray-50 border border-gray-200 rounded-lg mt-4">
-                <summary class="cursor-pointer font-semibold p-4 text-gray-700 hover:bg-gray-100 transition-colors rounded-lg">
-                    💻 View C Source Code
-                </summary>
-                <div class="p-4 border-t border-gray-200 overflow-x-auto text-sm bg-white">
-<pre><code class="language-c">#include &lt;stdio.h&gt;
-#include &lt;stdlib.h&gt;
-#include &lt;string.h&gt;
-#include &lt;unistd.h&gt;
-#include &lt;sys/socket.h&gt;
-#include &lt;sys/ioctl.h&gt;
-#include &lt;arpa/inet.h&gt;
-#include &lt;net/if.h&gt;
-#include &lt;linux/if_packet.h&gt;
-#include &lt;linux/if_ether.h&gt;
-#include &lt;linux/if_arp.h&gt;
-
-#define MAX_FRAME_SIZE 65536
-#define CAPTURE_COUNT 10
-
-// Print MAC Address
-void printMAC(unsigned char *mac) {
-    for (int i = 0; i &lt; 6; i++) {
-        printf("%02X", mac[i]);
-        if (i &lt; 5) {
-            printf(":");
-        }
-    }
-}
-
-// Compare MAC addresses
-int isEqualMAC(unsigned char *a, unsigned char *b) {
-    return memcmp(a, b, 6) == 0;
-}
-
-// Check Broadcast MAC: FF:FF:FF:FF:FF:FF
-int isBroadcast(unsigned char *mac) {
-    for (int i = 0; i &lt; 6; i++) {
-        if (mac[i] != 0xFF) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-// Check Multicast MAC
-// In Ethernet, if least significant bit of first byte is 1, it is multicast
-int isMulticast(unsigned char *mac) {
-    return (mac[0] &amp; 0x01);
-}
-
-// Get MAC address of selected network interface
-int getInterfaceMAC(int sockfd, char *interfaceName, unsigned char *deviceMAC) {
-    struct ifreq ifr;
-    memset(&amp;ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, interfaceName, IFNAMSIZ - 1);
-
-    if (ioctl(sockfd, SIOCGIFHWADDR, &amp;ifr) &lt; 0) {
-        perror("Unable to get interface MAC address");
-        return -1;
-    }
-    memcpy(deviceMAC, ifr.ifr_hwaddr.sa_data, 6);
-    return 0;
-}
-
-// Get interface index
-int getInterfaceIndex(int sockfd, char *interfaceName) {
-    struct ifreq ifr;
-    memset(&amp;ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, interfaceName, IFNAMSIZ - 1);
-
-    if (ioctl(sockfd, SIOCGIFINDEX, &amp;ifr) &lt; 0) {
-        perror("Unable to get interface index");
-        return -1;
-    }
-    return ifr.ifr_ifindex;
-}
-
-// Protocol identification based on EtherType
-void identifyProtocol(unsigned short etherType) {
-    printf("\n--- Protocol Identification ---\n");
-    if (etherType == ETH_P_IP) {
-        printf("Protocol: IPv4  --&gt; Forward to IP Layer\n");
-    }
-    else if (etherType == ETH_P_ARP) {
-        printf("Protocol: ARP   --&gt; Forward to ARP Module\n");
-    }
-    else if (etherType == ETH_P_IPV6) {
-        printf("Protocol: IPv6  --&gt; Forward to IPv6 Layer\n");
-    }
-    else {
-        printf("Protocol: Other / Unknown\n");
-    }
-}
-
-// Main function
-int main(int argc, char *argv[]) {
-    int sockfd;
-    unsigned char buffer[MAX_FRAME_SIZE];
-    unsigned char deviceMAC[6];
-    char *interfaceName;
-
-    if (argc != 2) {
-        printf("Usage: sudo %s &lt;interface-name&gt;\n", argv[0]);
-        printf("Example: sudo %s eth0\n", argv[0]);
-        printf("Use 'ip link' command to find interface name.\n");
-        return 1;
-    }
-    interfaceName = argv[1];
-
-    // Create raw socket to capture all Ethernet frames
-    sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-    if (sockfd &lt; 0) {
-        perror("Raw socket creation failed");
-        printf("Run this program using sudo.\n");
-        return 1;
-    }
-
-    // Get MAC address of selected interface
-    if (getInterfaceMAC(sockfd, interfaceName, deviceMAC) &lt; 0) {
-        close(sockfd);
-        return 1;
-    }
-
-    // Get interface index
-    int interfaceIndex = getInterfaceIndex(sockfd, interfaceName);
-    if (interfaceIndex &lt; 0) {
-        close(sockfd);
-        return 1;
-    }
-
-    // Bind raw socket to selected interface
-    struct sockaddr_ll socketAddress;
-    memset(&amp;socketAddress, 0, sizeof(socketAddress));
-    socketAddress.sll_family = AF_PACKET;
-    socketAddress.sll_protocol = htons(ETH_P_ALL);
-    socketAddress.sll_ifindex = interfaceIndex;
-
-    if (bind(sockfd, (struct sockaddr *)&amp;socketAddress, sizeof(socketAddress)) &lt; 0) {
-        perror("Bind failed");
-        close(sockfd);
-        return 1;
-    }
-
-    printf("\n========================================\n");
-    printf(" Real Ethernet Frame Receiver and Parser\n");
-    printf("========================================\n");
-    printf("Interface Name : %s\n", interfaceName);
-    printf("Device MAC     : ");
-    printMAC(deviceMAC);
-    printf("\n");
-    printf("\nCapturing %d Ethernet frames...\n", CAPTURE_COUNT);
-    printf("Generate traffic using ping in another terminal if needed.\n");
-
-    for (int frameNo = 1; frameNo &lt;= CAPTURE_COUNT; frameNo++) {
-        ssize_t frameLength;
-        frameLength = recvfrom(sockfd, buffer, sizeof(buffer), 0, NULL, NULL);
-
-        if (frameLength &lt; 0) {
-            perror("Packet receive failed");
-            close(sockfd);
-            return 1;
-        }
-
-        // Ethernet header is present at the start of the frame
-        struct ethhdr *eth = (struct ethhdr *)buffer;
-        unsigned char *dstMAC = eth-&gt;h_dest;
-        unsigned char *srcMAC = eth-&gt;h_source;
-        unsigned short etherType = ntohs(eth-&gt;h_proto);
-
-        printf("\n\n========================================\n");
-        printf("Frame No. %d\n", frameNo);
-        printf("========================================\n");
-        printf("Frame Length    : %ld bytes\n", frameLength);
-        printf("Destination MAC : ");
-        printMAC(dstMAC);
-        printf("\nSource MAC      : ");
-        printMAC(srcMAC);
-        printf("\nEtherType       : 0x%04X\n", etherType);
-
-        // Step 1: MAC Address Check
-        printf("\n--- MAC Address Decision ---\n");
-        if (isEqualMAC(dstMAC, deviceMAC)) {
-            printf("MAC Match        --&gt; Frame Accepted\n");
-        }
-        else if (isBroadcast(dstMAC)) {
-            printf("Broadcast Frame  --&gt; Frame Accepted\n");
-        }
-        else if (isMulticast(dstMAC)) {
-            printf("Multicast Frame  --&gt; Accepted if subscribed\n");
-        }
-        else {
-            printf("MAC Mismatch     --&gt; Frame not intended for this device\n");
-            printf("Note: In a normal NIC, such frames are usually filtered before reaching the OS.\n");
-        }
-
-        // Step 2: CRC / FCS note
-        printf("\n--- CRC / FCS Check ---\n");
-        printf("FCS is normally checked by NIC hardware and removed before packet reaches this program.\n");
-        printf("Therefore, this program cannot directly verify Ethernet FCS.\n");
-
-        // Step 3: EtherType Handling
-        identifyProtocol(etherType);
-        printf("\nEthernet Header Parsed --&gt; Payload can be passed to upper layer conceptually.\n");
-    }
-
-    close(sockfd);
-    return 0;
-}
-</code></pre>
-                </div>
-            </details>
-        </div>
-
-        <!-- Flowchart 3 -->
-        <div class="bg-white p-8 rounded-xl shadow-md">
-            <h2 class="text-2xl font-semibold mb-4 border-b pb-2">3. raw-ethernet-send-frame.c</h2>
-            <p class="mb-4 text-gray-600">Constructs and injects a custom Ethernet frame directly into the network.</p>
-            
-            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-                <h3 class="text-yellow-800 font-bold text-sm mb-1">⚠️ Warnings & Safety</h3>
-                <ul class="list-disc list-inside text-sm text-yellow-700">
-                    <li><strong>Custom EtherType (0x88B5):</strong> Normal OS network stacks will drop this frame. You will only see it using Wireshark or another raw socket receiver on the network.</li>
-                    <li><strong>FCS Generation:</strong> The NIC adds the Frame Check Sequence (FCS) automatically at the hardware level; our C code ensures the frame payload meets the 60-byte minimum.</li>
-                </ul>
-            </div>
-
-            <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
-                <h3 class="text-blue-800 font-bold text-sm mb-1">⚙️ Execution Steps</h3>
-                <ol class="list-decimal list-inside text-sm text-blue-700 font-mono">
-                    <li>gcc raw-ethernet-send-frame.c -o raw-ethernet-send-frame</li>
-                    <li>sudo ./raw-ethernet-send-frame &lt;interface&gt; &lt;destination-mac&gt; "&lt;payload&gt;"</li>
-                    <li><span class="text-gray-500 italic"># Example: sudo ./raw-ethernet-send-frame enp0s3 ff:ff:ff:ff:ff:ff "Hello Network"</span></li>
-                </ol>
-            </div>
-
-            <h3 class="text-lg font-semibold mb-2 text-gray-700">Flowchart Logic</h3>
-            <div class="mermaid mb-6">
-                graph TD
-                    A([Start]) --> B[Parse Args: Interface,<br/>Dest MAC, Payload]
-                    B --> C[Create Raw Socket<br/>Custom EtherType 0x88B5]
-                    C --> D[Get Interface MAC & Index]
-                    D --> E[Allocate Buffer for Frame]
-                    E --> F[Construct Ethernet Header:<br/>Set Dest MAC, Src MAC, EtherType]
-                    F --> G[Append Text Payload to Buffer]
-                    G --> H[Calculate Total Length]
-                    H --> I{Length < 60 bytes?}
-                    I -- Yes --> J[Pad length to 60<br/>Minimum Ethernet size]
-                    I -- No --> K[Configure sockaddr_ll struct]
-                    J --> K
-                    K --> L[Send Frame via sendto]
+                    A([Start]) --> B[Parse Source & Dest IPs]
+                    B --> C[Allocate 1500 byte Array]
+                    C --> D[Map IP, ICMP, and Payload pointers]
+                    D --> E[Copy Application Payload Text]
+                    E --> F[Prepare ICMP Header<br/>Type: ICMP_ECHO]
+                    F --> G[Calculate ICMP Checksum]
+                    G --> H[Prepare IPv4 Header<br/>Set TTL, Protocol: ICMP]
+                    H --> I[Calculate IPv4 Checksum]
+                    I --> J[Create Raw Socket<br/>AF_INET, IPPROTO_RAW]
+                    J --> K[Set setsockopt IP_HDRINCL to 1]
+                    K --> L[Send Packet via sendto]
                     L --> M([Close Socket & End])
             </div>
 
@@ -471,580 +294,458 @@ int main(int argc, char *argv[]) {
                     💻 View C Source Code
                 </summary>
                 <div class="p-4 border-t border-gray-200 overflow-x-auto text-sm bg-white">
-<pre><code class="language-c">#include &lt;stdio.h&gt;
+<pre><code class="language-c">/*
+Program Name: raw_ip_send_process.c
+Purpose: Construct and send an IPv4 packet containing an ICMP Echo Request.
+*/
+#include &lt;stdio.h&gt;
 #include &lt;stdlib.h&gt;
 #include &lt;string.h&gt;
 #include &lt;unistd.h&gt;
-#include &lt;sys/socket.h&gt;
-#include &lt;sys/ioctl.h&gt;
 #include &lt;arpa/inet.h&gt;
-#include &lt;net/if.h&gt;
-#include &lt;linux/if_packet.h&gt;
-#include &lt;linux/if_ether.h&gt;
-
-#define CUSTOM_ETHERTYPE 0x88B5
-#define MAX_PAYLOAD_SIZE 1500
-
-void printMAC(unsigned char *mac) {
-    for (int i = 0; i &lt; 6; i++) {
-        printf("%02X", mac[i]);
-        if (i &lt; 5) printf(":");
-    }
-}
-
-int parseMAC(const char *macStr, unsigned char *mac) {
-    return sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-                  &amp;mac[0], &amp;mac[1], &amp;mac[2],
-                  &amp;mac[3], &amp;mac[4], &amp;mac[5]) == 6;
-}
-
-int getInterfaceMAC(int sockfd, const char *interfaceName, unsigned char *mac) {
-    struct ifreq ifr;
-    memset(&amp;ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, interfaceName, IFNAMSIZ - 1);
-    if (ioctl(sockfd, SIOCGIFHWADDR, &amp;ifr) &lt; 0) {
-        perror("Unable to get interface MAC address");
-        return -1;
-    }
-    memcpy(mac, ifr.ifr_hwaddr.sa_data, 6);
-    return 0;
-}
-
-int getInterfaceIndex(int sockfd, const char *interfaceName) {
-    struct ifreq ifr;
-    memset(&amp;ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, interfaceName, IFNAMSIZ - 1);
-    if (ioctl(sockfd, SIOCGIFINDEX, &amp;ifr) &lt; 0) {
-        perror("Unable to get interface index");
-        return -1;
-    }
-    return ifr.ifr_ifindex;
-}
-
-int main(int argc, char *argv[]) {
-    if (argc != 4) {
-        printf("Usage: sudo %s &lt;interface&gt; &lt;destination-mac&gt; &lt;payload&gt;\n", argv[0]);
-        return 1;
-    }
-
-    char *interfaceName = argv[1];
-    char *dstMacStr = argv[2];
-    char *payload = argv[3];
-    unsigned char dstMAC[6];
-    unsigned char srcMAC[6];
-
-    if (!parseMAC(dstMacStr, dstMAC)) {
-        printf("Invalid destination MAC format.\n");
-        return 1;
-    }
-
-    int sockfd = socket(AF_PACKET, SOCK_RAW, htons(CUSTOM_ETHERTYPE));
-    if (sockfd &lt; 0) {
-        perror("Raw socket creation failed");
-        printf("Run using sudo.\n");
-        return 1;
-    }
-
-    if (getInterfaceMAC(sockfd, interfaceName, srcMAC) &lt; 0) {
-        close(sockfd);
-        return 1;
-    }
-
-    int ifIndex = getInterfaceIndex(sockfd, interfaceName);
-    if (ifIndex &lt; 0) {
-        close(sockfd);
-        return 1;
-    }
-
-    unsigned char frame[ETH_FRAME_LEN];
-    memset(frame, 0, ETH_FRAME_LEN);
-
-    struct ethhdr *eth = (struct ethhdr *)frame;
-    memcpy(eth-&gt;h_dest, dstMAC, 6);
-    memcpy(eth-&gt;h_source, srcMAC, 6);
-    eth-&gt;h_proto = htons(CUSTOM_ETHERTYPE);
-
-    int payloadLen = strlen(payload);
-    if (payloadLen &gt; MAX_PAYLOAD_SIZE) {
-        printf("Payload too large.\n");
-        close(sockfd);
-        return 1;
-    }
-
-    memcpy(frame + sizeof(struct ethhdr), payload, payloadLen);
-    int frameLen = sizeof(struct ethhdr) + payloadLen;
-
-    if (frameLen &lt; 60) {
-        frameLen = 60;   // Minimum Ethernet frame size without FCS
-    }
-
-    struct sockaddr_ll socketAddress;
-    memset(&amp;socketAddress, 0, sizeof(socketAddress));
-    socketAddress.sll_family = AF_PACKET;
-    socketAddress.sll_ifindex = ifIndex;
-    socketAddress.sll_halen = ETH_ALEN;
-    memcpy(socketAddress.sll_addr, dstMAC, 6);
-
-    printf("\n--- Ethernet Frame to Send ---\n");
-    printf("Interface       : %s\n", interfaceName);
-    printf("Source MAC      : ");
-    printMAC(srcMAC);
-    printf("\nDestination MAC : ");
-    printMAC(dstMAC);
-    printf("\nEtherType       : 0x%04X", CUSTOM_ETHERTYPE);
-    printf("\nPayload         : %s\n", payload);
-
-    int sentBytes = sendto(sockfd, frame, frameLen, 0,
-                           (struct sockaddr *)&amp;socketAddress,
-                           sizeof(socketAddress));
-
-    if (sentBytes &lt; 0) {
-        perror("Frame send failed");
-        close(sockfd);
-        return 1;
-    }
-
-    printf("\nFrame sent successfully. Bytes sent: %d\n", sentBytes);
-    close(sockfd);
-    return 0;
-}
-</code></pre>
-                </div>
-            </details>
-        </div>
-
-        <!-- Flowchart 4 -->
-        <div class="bg-white p-8 rounded-xl shadow-md">
-            <h2 class="text-2xl font-semibold mb-4 border-b pb-2">4. raw-arp-receive.c</h2>
-            <p class="mb-4 text-gray-600">Filters and parses only ARP protocol packets from the network.</p>
-
-            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-                <h3 class="text-yellow-800 font-bold text-sm mb-1">⚠️ Warnings & Safety</h3>
-                <ul class="list-disc list-inside text-sm text-yellow-700">
-                    <li><strong>Traffic Generation:</strong> This program only captures <code>ETH_P_ARP</code> traffic. If the network is quiet, it will hang indefinitely waiting for an ARP frame. You MUST generate ARP traffic in another terminal to see output.</li>
-                </ul>
-            </div>
-
-            <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
-                <h3 class="text-blue-800 font-bold text-sm mb-1">⚙️ Execution Steps</h3>
-                <ol class="list-decimal list-inside text-sm text-blue-700 font-mono">
-                    <li>gcc raw-arp-receive.c -o raw-arp-receive</li>
-                    <li>sudo ./raw-arp-receive &lt;interface&gt;</li>
-                    <li><span class="text-gray-500 italic"># While it runs, open a NEW terminal window and run:</span></li>
-                    <li>ping -c 4 &lt;your-gateway-ip&gt;</li>
-                </ol>
-            </div>
-
-            <h3 class="text-lg font-semibold mb-2 text-gray-700">Flowchart Logic</h3>
-            <div class="mermaid mb-6">
-                graph TD
-                    A([Start]) --> B[Parse Interface Name]
-                    B --> C[Create Raw Socket<br/>AF_PACKET, ETH_P_ARP]
-                    C --> D[Get Interface Index & Bind Socket]
-                    D --> E[Initialize count = 1]
-                    E --> F{count <= 5?}
-                    F -- No --> G([Close Socket & End])
-                    F -- Yes --> H[Receive Frame]
-                    H --> I[Parse Ethernet Header]
-                    I --> J[Parse ARP Header]
-                    J --> K[Print MACs & EtherType]
-                    K --> L{Check ARP Opcode}
-                    L -- 1 --> M[Identify as ARP Request]
-                    L -- 2 --> N[Identify as ARP Reply]
-                    M --> O[Print Sender IP/MAC<br/>& Target IP/MAC]
-                    N --> O
-                    O --> P[Increment count]
-                    P --> F
-            </div>
-
-            <details class="group bg-gray-50 border border-gray-200 rounded-lg mt-4">
-                <summary class="cursor-pointer font-semibold p-4 text-gray-700 hover:bg-gray-100 transition-colors rounded-lg">
-                    💻 View C Source Code
-                </summary>
-                <div class="p-4 border-t border-gray-200 overflow-x-auto text-sm bg-white">
-<pre><code class="language-c">#include &lt;stdio.h&gt;
-#include &lt;stdlib.h&gt;
-#include &lt;string.h&gt;
-#include &lt;unistd.h&gt;
+#include &lt;netinet/ip.h&gt;
+#include &lt;netinet/ip_icmp.h&gt;
 #include &lt;sys/socket.h&gt;
-#include &lt;sys/ioctl.h&gt;
-#include &lt;arpa/inet.h&gt;
-#include &lt;net/if.h&gt;
-#include &lt;linux/if_packet.h&gt;
-#include &lt;linux/if_ether.h&gt;
-#include &lt;linux/if_arp.h&gt;
 
-#define ARP_CAPTURE_COUNT 5
+#define PAYLOAD_TEXT "ITUC201 Raw IPv4 Packet"
 
-struct arp_header {
-    unsigned short hardware_type;
-    unsigned short protocol_type;
-    unsigned char hardware_size;
-    unsigned char protocol_size;
-    unsigned short opcode;
-    unsigned char sender_mac[6];
-    unsigned char sender_ip[4];
-    unsigned char target_mac[6];
-    unsigned char target_ip[4];
-};
-
-void printMAC(unsigned char *mac) {
-    for (int i = 0; i &lt; 6; i++) {
-        printf("%02X", mac[i]);
-        if (i &lt; 5) printf(":");
+static unsigned short calculate_checksum(const void *data, size_t length) {
+    const unsigned short *words = data;
+    unsigned long sum = 0;
+    while (length &gt; 1) {
+        sum += *words++;
+        length -= 2;
     }
-}
-
-void printIP(unsigned char *ip) {
-    printf("%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
-}
-
-int getInterfaceIndex(int sockfd, const char *interfaceName) {
-    struct ifreq ifr;
-    memset(&amp;ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, interfaceName, IFNAMSIZ - 1);
-    if (ioctl(sockfd, SIOCGIFINDEX, &amp;ifr) &lt; 0) {
-        perror("Unable to get interface index");
-        return -1;
+    if (length == 1) {
+        unsigned short final_byte = 0;
+        *((unsigned char *)&amp;final_byte) = *((const unsigned char *)words);
+        sum += final_byte;
     }
-    return ifr.ifr_ifindex;
-}
-
-int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        printf("Usage: sudo %s &lt;interface&gt;\n", argv[0]);
-        return 1;
+    while (sum &gt;&gt; 16) {
+        sum = (sum &amp; 0xFFFFUL) + (sum &gt;&gt; 16);
     }
-
-    char *interfaceName = argv[1];
-
-    int sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
-    if (sockfd &lt; 0) {
-        perror("Raw socket creation failed");
-        printf("Run using sudo.\n");
-        return 1;
-    }
-
-    int ifIndex = getInterfaceIndex(sockfd, interfaceName);
-    if (ifIndex &lt; 0) {
-        close(sockfd);
-        return 1;
-    }
-
-    struct sockaddr_ll socketAddress;
-    memset(&amp;socketAddress, 0, sizeof(socketAddress));
-    socketAddress.sll_family = AF_PACKET;
-    socketAddress.sll_protocol = htons(ETH_P_ARP);
-    socketAddress.sll_ifindex = ifIndex;
-
-    if (bind(sockfd, (struct sockaddr *)&amp;socketAddress, sizeof(socketAddress)) &lt; 0) {
-        perror("Bind failed");
-        close(sockfd);
-        return 1;
-    }
-
-    printf("\nCapturing ARP packets on interface: %s\n", interfaceName);
-    printf("Generate traffic using: ping -c 4 &lt;gateway-ip&gt;\n");
-
-    for (int count = 1; count &lt;= ARP_CAPTURE_COUNT; count++) {
-        unsigned char buffer[65536];
-        ssize_t length = recvfrom(sockfd, buffer, sizeof(buffer), 0, NULL, NULL);
-
-        if (length &lt; 0) {
-            perror("Receive failed");
-            close(sockfd);
-            return 1;
-        }
-
-        struct ethhdr *eth = (struct ethhdr *)buffer;
-        struct arp_header *arp = (struct arp_header *)(buffer + sizeof(struct ethhdr));
-
-        printf("\n=====================================\n");
-        printf("ARP Packet No. %d\n", count);
-        printf("=====================================\n");
-
-        printf("\n[ Ethernet Header ]\n");
-        printf("Destination MAC : ");
-        printMAC(eth-&gt;h_dest);
-        printf("\nSource MAC      : ");
-        printMAC(eth-&gt;h_source);
-        printf("\nEtherType       : 0x%04X", ntohs(eth-&gt;h_proto));
-
-        printf("\n\n[ ARP Header ]\n");
-        printf("Hardware Type   : %u\n", ntohs(arp-&gt;hardware_type));
-        printf("Protocol Type   : 0x%04X\n", ntohs(arp-&gt;protocol_type));
-        printf("Hardware Size   : %u\n", arp-&gt;hardware_size);
-        printf("Protocol Size   : %u\n", arp-&gt;protocol_size);
-
-        unsigned short opcode = ntohs(arp-&gt;opcode);
-        printf("Opcode          : %u ", opcode);
-        if (opcode == ARPOP_REQUEST) {
-            printf("(ARP Request)\n");
-        }
-        else if (opcode == ARPOP_REPLY) {
-            printf("(ARP Reply)\n");
-        }
-        else {
-            printf("(Other)\n");
-        }
-
-        printf("Sender MAC      : ");
-        printMAC(arp-&gt;sender_mac);
-        printf("\nSender IP       : ");
-        printIP(arp-&gt;sender_ip);
-        printf("\nTarget MAC      : ");
-        printMAC(arp-&gt;target_mac);
-        printf("\nTarget IP       : ");
-        printIP(arp-&gt;target_ip);
-        printf("\n");
-    }
-
-    close(sockfd);
-    return 0;
-}
-</code></pre>
-                </div>
-            </details>
-        </div>
-
-        <!-- Flowchart 5 -->
-        <div class="bg-white p-8 rounded-xl shadow-md">
-            <h2 class="text-2xl font-semibold mb-4 border-b pb-2">5. raw-arp-request-reply.c</h2>
-            <p class="mb-4 text-gray-600">Broadcasts an ARP Request for a specific IP and waits to capture the corresponding ARP Reply.</p>
-
-            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-                <h3 class="text-yellow-800 font-bold text-sm mb-1">⚠️ Warnings & Safety</h3>
-                <ul class="list-disc list-inside text-sm text-yellow-700">
-                    <li><strong>Subnet Match:</strong> The target IP must be active and exist on the same local subnet as your machine.</li>
-                    <li><strong>VirtualBox NAT:</strong> If you are using a VirtualBox NAT network, <code>10.0.2.2</code> is commonly the virtual default gateway. Use this IP if testing on a VM.</li>
-                </ul>
-            </div>
-
-            <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
-                <h3 class="text-blue-800 font-bold text-sm mb-1">⚙️ Execution Steps</h3>
-                <ol class="list-decimal list-inside text-sm text-blue-700 font-mono">
-                    <li>gcc raw-arp-request-reply.c -o raw-arp-request-reply</li>
-                    <li>sudo ./raw-arp-request-reply &lt;interface&gt; &lt;target-ip&gt;</li>
-                    <li><span class="text-gray-500 italic"># Example for VirtualBox: sudo ./raw-arp-request-reply enp0s3 10.0.2.2</span></li>
-                </ol>
-            </div>
-
-            <h3 class="text-lg font-semibold mb-2 text-gray-700">Flowchart Logic</h3>
-            <div class="mermaid mb-6">
-                graph TD
-                    A([Start]) --> B[Parse Target IP & Interface]
-                    B --> C[Create Raw Socket for ARP]
-                    C --> D[Get Interface MAC, IP & Index]
-                    D --> E[Construct Ethernet Header<br/>Dest MAC = FF:FF:FF:FF:FF:FF]
-                    E --> F[Construct ARP Header<br/>Opcode = 1 Request]
-                    F --> G[Set Sender IP/MAC to Own<br/>Target IP = Arg, Target MAC = 0]
-                    G --> H[Send ARP Request]
-                    H --> I[Enter while true listening loop]
-                    I --> J[Receive Frame]
-                    J --> K{Is EtherType ARP?}
-                    K -- No --> I
-                    K -- Yes --> L{Is Opcode == 2 Reply?}
-                    L -- No --> I
-                    L -- Yes --> M{Does Sender IP == Target IP?}
-                    M -- No --> I
-                    M -- Yes --> N[Match Found! Print Resolved MAC]
-                    N --> O([Close Socket & Break Loop])
-            </div>
-
-            <details class="group bg-gray-50 border border-gray-200 rounded-lg mt-4">
-                <summary class="cursor-pointer font-semibold p-4 text-gray-700 hover:bg-gray-100 transition-colors rounded-lg">
-                    💻 View C Source Code
-                </summary>
-                <div class="p-4 border-t border-gray-200 overflow-x-auto text-sm bg-white">
-<pre><code class="language-c">#include &lt;stdio.h&gt;
-#include &lt;stdlib.h&gt;
-#include &lt;string.h&gt;
-#include &lt;unistd.h&gt;
-#include &lt;sys/socket.h&gt;
-#include &lt;sys/ioctl.h&gt;
-#include &lt;arpa/inet.h&gt;
-#include &lt;net/if.h&gt;
-#include &lt;linux/if_packet.h&gt;
-#include &lt;linux/if_ether.h&gt;
-#include &lt;linux/if_arp.h&gt;
-
-struct arp_header {
-    unsigned short hardware_type;
-    unsigned short protocol_type;
-    unsigned char hardware_size;
-    unsigned char protocol_size;
-    unsigned short opcode;
-    unsigned char sender_mac[6];
-    unsigned char sender_ip[4];
-    unsigned char target_mac[6];
-    unsigned char target_ip[4];
-};
-
-void printMAC(unsigned char *mac) {
-    for (int i = 0; i &lt; 6; i++) {
-        printf("%02X", mac[i]);
-        if (i &lt; 5) printf(":");
-    }
-}
-
-void printIP(unsigned char *ip) {
-    printf("%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
-}
-
-int getInterfaceInfo(int sockfd, const char *interfaceName,
-                     int *ifIndex,
-                     unsigned char *mac,
-                     unsigned char *ip) {
-    struct ifreq ifr;
-    memset(&amp;ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, interfaceName, IFNAMSIZ - 1);
-
-    if (ioctl(sockfd, SIOCGIFINDEX, &amp;ifr) &lt; 0) {
-        perror("Unable to get interface index");
-        return -1;
-    }
-    *ifIndex = ifr.ifr_ifindex;
-
-    if (ioctl(sockfd, SIOCGIFHWADDR, &amp;ifr) &lt; 0) {
-        perror("Unable to get MAC address");
-        return -1;
-    }
-    memcpy(mac, ifr.ifr_hwaddr.sa_data, 6);
-
-    if (ioctl(sockfd, SIOCGIFADDR, &amp;ifr) &lt; 0) {
-        perror("Unable to get IP address");
-        return -1;
-    }
-    struct sockaddr_in *ipaddr = (struct sockaddr_in *)&amp;ifr.ifr_addr;
-    memcpy(ip, &amp;ipaddr-&gt;sin_addr, 4);
-
-    return 0;
+    return (unsigned short)(~sum);
 }
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
-        printf("Usage: sudo %s &lt;interface&gt; &lt;target-ip&gt;\n", argv[0]);
-        return 1;
+        fprintf(stderr, "Usage: sudo %s &lt;source-ip&gt; &lt;destination-ip&gt;\n", argv[0]);
+        return EXIT_FAILURE;
     }
 
-    char *interfaceName = argv[1];
-    char *targetIPString = argv[2];
+    const char *source_ip_string = argv[1];
+    const char *destination_ip_string = argv[2];
 
-    int sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
-    if (sockfd &lt; 0) {
-        perror("Raw socket creation failed");
-        printf("Run using sudo.\n");
-        return 1;
-    }
-
-    int ifIndex;
-    unsigned char sourceMAC[6];
-    unsigned char sourceIP[4];
-
-    if (getInterfaceInfo(sockfd, interfaceName, &amp;ifIndex, sourceMAC, sourceIP) &lt; 0) {
-        close(sockfd);
-        return 1;
-    }
-
-    unsigned char targetIP[4];
-    if (inet_pton(AF_INET, targetIPString, targetIP) != 1) {
-        printf("Invalid target IP address.\n");
-        close(sockfd);
-        return 1;
-    }
-
-    unsigned char broadcastMAC[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-    unsigned char zeroMAC[6] = {0, 0, 0, 0, 0, 0};
-
-    unsigned char packet[sizeof(struct ethhdr) + sizeof(struct arp_header)];
+    unsigned char packet[1500];
     memset(packet, 0, sizeof(packet));
 
-    struct ethhdr *eth = (struct ethhdr *)packet;
-    struct arp_header *arp = (struct arp_header *)(packet + sizeof(struct ethhdr));
+    struct iphdr *ip_header = (struct iphdr *)packet;
+    struct icmphdr *icmp_header = (struct icmphdr *)(packet + sizeof(struct iphdr));
+    unsigned char *payload = packet + sizeof(struct iphdr) + sizeof(struct icmphdr);
 
-    memcpy(eth-&gt;h_dest, broadcastMAC, 6);
-    memcpy(eth-&gt;h_source, sourceMAC, 6);
-    eth-&gt;h_proto = htons(ETH_P_ARP);
+    size_t payload_length = strlen(PAYLOAD_TEXT);
+    memcpy(payload, PAYLOAD_TEXT, payload_length);
 
-    arp-&gt;hardware_type = htons(ARPHRD_ETHER);
-    arp-&gt;protocol_type = htons(ETH_P_IP);
-    arp-&gt;hardware_size = 6;
-    arp-&gt;protocol_size = 4;
-    arp-&gt;opcode = htons(ARPOP_REQUEST);
-    memcpy(arp-&gt;sender_mac, sourceMAC, 6);
-    memcpy(arp-&gt;sender_ip, sourceIP, 4);
-    memcpy(arp-&gt;target_mac, zeroMAC, 6);
-    memcpy(arp-&gt;target_ip, targetIP, 4);
+    size_t icmp_length = sizeof(struct icmphdr) + payload_length;
+    size_t packet_length = sizeof(struct iphdr) + icmp_length;
 
-    struct sockaddr_ll socketAddress;
-    memset(&amp;socketAddress, 0, sizeof(socketAddress));
-    socketAddress.sll_family = AF_PACKET;
-    socketAddress.sll_ifindex = ifIndex;
-    socketAddress.sll_halen = ETH_ALEN;
-    memcpy(socketAddress.sll_addr, broadcastMAC, 6);
+    struct in_addr source_address;
+    struct in_addr destination_address;
 
-    printf("\n=====================================\n");
-    printf("Sending ARP Request\n");
-    printf("=====================================\n");
-    printf("Source MAC : ");
-    printMAC(sourceMAC);
-    printf("\nSource IP  : ");
-    printIP(sourceIP);
-    printf("\nTarget IP  : ");
-    printIP(targetIP);
-    printf("\nDestination MAC : FF:FF:FF:FF:FF:FF\n");
-
-    ssize_t sent = sendto(sockfd, packet, sizeof(packet), 0,
-                          (struct sockaddr *)&amp;socketAddress,
-                          sizeof(socketAddress));
-
-    if (sent &lt; 0) {
-        perror("ARP Request send failed");
-        close(sockfd);
-        return 1;
+    if (inet_pton(AF_INET, source_ip_string, &amp;source_address) != 1) {
+        fprintf(stderr, "Invalid source IPv4 address.\n");
+        return EXIT_FAILURE;
     }
 
-    printf("\nARP Request sent successfully.\n");
-    printf("Waiting for ARP Reply...\n");
+    if (inet_pton(AF_INET, destination_ip_string, &amp;destination_address) != 1) {
+        fprintf(stderr, "Invalid destination IPv4 address.\n");
+        return EXIT_FAILURE;
+    }
+
+    /* Prepare ICMP Echo Request. */
+    icmp_header-&gt;type = ICMP_ECHO;
+    icmp_header-&gt;code = 0;
+    icmp_header-&gt;un.echo.id = htons((unsigned short)getpid());
+    icmp_header-&gt;un.echo.sequence = htons(1);
+    icmp_header-&gt;checksum = 0;
+    icmp_header-&gt;checksum = calculate_checksum(icmp_header, icmp_length);
+
+    /* Prepare IPv4 header. */
+    ip_header-&gt;version = 4;
+    ip_header-&gt;ihl = 5;
+    ip_header-&gt;tos = 0;
+    ip_header-&gt;tot_len = htons((unsigned short)packet_length);
+    ip_header-&gt;id = htons((unsigned short)getpid());
+    ip_header-&gt;frag_off = htons(0);
+    ip_header-&gt;ttl = 64;
+    ip_header-&gt;protocol = IPPROTO_ICMP;
+    ip_header-&gt;saddr = source_address.s_addr;
+    ip_header-&gt;daddr = destination_address.s_addr;
+    ip_header-&gt;check = 0;
+    ip_header-&gt;check = calculate_checksum(ip_header, sizeof(struct iphdr));
+
+    int socket_fd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+    if (socket_fd &lt; 0) {
+        perror("Raw IP socket creation failed");
+        fprintf(stderr, "Run the program using sudo.\n");
+        return EXIT_FAILURE;
+    }
+
+    int header_included = 1;
+    if (setsockopt(socket_fd, IPPROTO_IP, IP_HDRINCL, &amp;header_included, sizeof(header_included)) &lt; 0) {
+        perror("IP_HDRINCL configuration failed");
+        close(socket_fd);
+        return EXIT_FAILURE;
+    }
+
+    struct sockaddr_in destination_socket;
+    memset(&amp;destination_socket, 0, sizeof(destination_socket));
+    destination_socket.sin_family = AF_INET;
+    destination_socket.sin_addr = destination_address;
+
+    printf("========================================\n");
+    printf("IPv4 Packet Preparation\n");
+    printf("========================================\n");
+    printf("Source IP       : %s\n", source_ip_string);
+    printf("Destination IP  : %s\n", destination_ip_string);
+    printf("Version         : %u\n", ip_header-&gt;version);
+    printf("Header length   : %u bytes\n", ip_header-&gt;ihl * 4U);
+    printf("Total length    : %u bytes\n", ntohs(ip_header-&gt;tot_len));
+    printf("TTL             : %u\n", ip_header-&gt;ttl);
+    printf("Protocol        : ICMP (%u)\n", ip_header-&gt;protocol);
+    printf("Payload         : %s\n", PAYLOAD_TEXT);
+    printf("IPv4 checksum   : 0x%04X\n", ntohs(ip_header-&gt;check));
+    printf("ICMP checksum   : 0x%04X\n", ntohs(icmp_header-&gt;checksum));
+
+    ssize_t sent_length = sendto(socket_fd, packet, packet_length, 0, (struct sockaddr *)&amp;destination_socket, sizeof(destination_socket));
+
+    if (sent_length &lt; 0) {
+        perror("Packet transmission failed");
+        close(socket_fd);
+        return EXIT_FAILURE;
+    }
+
+    printf("Packet sent successfully: %zd bytes\n", sent_length);
+    close(socket_fd);
+    return EXIT_SUCCESS;
+}
+</code></pre>
+                </div>
+            </details>
+        </div>
+
+        <!-- Flowchart 3 -->
+        <div class="bg-white p-8 rounded-xl shadow-md">
+            <h2 class="text-2xl font-semibold mb-4 border-b pb-2">3. raw_ip_router_parse.c</h2>
+            <p class="mb-4 text-gray-600">Simulates router processing: parses IPv4, checks TTL, performs longest-prefix matching, updates TTL/Checksum.</p>
+            
+            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+                <h3 class="text-yellow-800 font-bold text-sm mb-1">⚠️ Safety & Simulation Warning</h3>
+                <p class="text-sm text-yellow-700">
+                    For laboratory safety, this version does NOT retransmit the packet. It simply analyzes a captured packet and safely demonstrates the forwarding decision without altering real network traffic.
+                </p>
+            </div>
+
+            <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
+                <h3 class="text-blue-800 font-bold text-sm mb-1">⚙️ Execution Steps</h3>
+                <ol class="list-decimal list-inside text-sm text-blue-700 font-mono">
+                    <li>gcc -Wall -Wextra raw_ip_router_parse.c -o raw_ip_router_parse</li>
+                    <li>sudo ./raw_ip_router_parse &lt;incoming-interface&gt;</li>
+                    <li><span class="text-gray-500 italic"># Example: sudo ./raw_ip_router_parse enp0s3</span></li>
+                </ol>
+            </div>
+
+            <h3 class="text-lg font-semibold mb-2 text-gray-700">Flowchart Logic</h3>
+            <div class="mermaid mb-6">
+                graph TD
+                    A([Start]) --> B[Initialize Custom Routing Table array]
+                    B --> C[Create Raw Socket<br/>AF_PACKET, ETH_P_IP]
+                    C --> D[Bind Socket to Incoming Interface]
+                    D --> E[Receive Incoming Packet]
+                    E --> F[Extract IPv4 Header]
+                    F --> G{Incoming TTL <= 1?}
+                    G -- Yes --> H[Decision: Drop Packet<br/>Reason: TTL Zero]
+                    G -- No --> I[Perform Longest-Prefix Match]
+                    I --> J{Valid Route Found?}
+                    J -- No --> K[Decision: Drop Packet<br/>Reason: No Route]
+                    J -- Yes --> L[Copy Header to modified_header buffer]
+                    L --> M[Decrement Outgoing TTL by 1]
+                    M --> N[Recalculate IPv4 Checksum]
+                    N --> O[Print Next Hop & Interface]
+                    O --> P([End Process])
+                    H --> P
+                    K --> P
+            </div>
+
+            <details class="group bg-gray-50 border border-gray-200 rounded-lg mt-4">
+                <summary class="cursor-pointer font-semibold p-4 text-gray-700 hover:bg-gray-100 transition-colors rounded-lg">
+                    💻 View C Source Code
+                </summary>
+                <div class="p-4 border-t border-gray-200 overflow-x-auto text-sm bg-white">
+<pre><code class="language-c">/*
+Program Name: raw_ip_router_parse.c
+Purpose: Capture an actual IPv4 packet and demonstrate router processing.
+*/
+#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;arpa/inet.h&gt;
+#include &lt;net/if.h&gt;
+#include &lt;netinet/ip.h&gt;
+#include &lt;sys/ioctl.h&gt;
+#include &lt;sys/socket.h&gt;
+#include &lt;linux/if_ether.h&gt;
+#include &lt;linux/if_packet.h&gt;
+
+#define BUFFER_SIZE 65536
+#define MAX_ROUTES 10
+
+typedef struct {
+    const char *network;
+    unsigned int prefix_length;
+    const char *next_hop;
+    const char *outgoing_interface;
+} route_definition_t;
+
+typedef struct {
+    uint32_t network;
+    uint32_t mask;
+    unsigned int prefix_length;
+    uint32_t next_hop;
+    char outgoing_interface[IFNAMSIZ];
+} route_entry_t;
+
+/* Students may modify this routing table according to their Practical 3 topology. */
+static const route_definition_t route_definitions[] = {
+    {"10.0.0.0", 24, "0.0.0.0", "enp0s8"},
+    {"11.0.0.0", 24, "0.0.0.0", "enp0s9"},
+    {"192.168.0.0", 16, "10.0.2.2", "enp0s3"},
+    {"0.0.0.0", 0, "10.0.2.2", "enp0s3"}
+};
+
+static unsigned short calculate_checksum(const void *data, size_t length) {
+    const unsigned short *words = data;
+    unsigned long sum = 0;
+    while (length &gt; 1) {
+        sum += *words++;
+        length -= 2;
+    }
+    if (length == 1) {
+        unsigned short final_byte = 0;
+        *((unsigned char *)&amp;final_byte) = *((const unsigned char *)words);
+        sum += final_byte;
+    }
+    while (sum &gt;&gt; 16) {
+        sum = (sum &amp; 0xFFFFUL) + (sum &gt;&gt; 16);
+    }
+    return (unsigned short)(~sum);
+}
+
+static uint32_t prefix_to_mask(unsigned int prefix_length) {
+    if (prefix_length == 0) { return 0; }
+    return htonl(0xFFFFFFFFU &lt;&lt; (32U - prefix_length));
+}
+
+static int initialise_routes(route_entry_t *routes, size_t route_count) {
+    for (size_t index = 0; index &lt; route_count; index++) {
+        struct in_addr network_address;
+        struct in_addr next_hop_address;
+
+        if (inet_pton(AF_INET, route_definitions[index].network, &amp;network_address) != 1) { return -1; }
+        if (inet_pton(AF_INET, route_definitions[index].next_hop, &amp;next_hop_address) != 1) { return -1; }
+
+        routes[index].mask = prefix_to_mask(route_definitions[index].prefix_length);
+        routes[index].network = network_address.s_addr &amp; routes[index].mask;
+        routes[index].prefix_length = route_definitions[index].prefix_length;
+        routes[index].next_hop = next_hop_address.s_addr;
+        strncpy(routes[index].outgoing_interface, route_definitions[index].outgoing_interface, IFNAMSIZ - 1);
+        routes[index].outgoing_interface[IFNAMSIZ - 1] = '\0';
+    }
+    return 0;
+}
+
+static const route_entry_t *longest_prefix_match(uint32_t destination_ip, const route_entry_t *routes, size_t route_count) {
+    const route_entry_t *best_route = NULL;
+    int best_prefix_length = -1;
+
+    for (size_t index = 0; index &lt; route_count; index++) {
+        if ((destination_ip &amp; routes[index].mask) == routes[index].network) {
+            if ((int)routes[index].prefix_length &gt; best_prefix_length) {
+                best_route = &amp;routes[index];
+                best_prefix_length = (int)routes[index].prefix_length;
+            }
+        }
+    }
+    return best_route;
+}
+
+static int get_interface_index(int socket_fd, const char *interface_name) {
+    struct ifreq request;
+    memset(&amp;request, 0, sizeof(request));
+    strncpy(request.ifr_name, interface_name, IFNAMSIZ - 1);
+    if (ioctl(socket_fd, SIOCGIFINDEX, &amp;request) &lt; 0) {
+        perror("Unable to obtain interface index");
+        return -1;
+    }
+    return request.ifr_ifindex;
+}
+
+static void print_ip_address(uint32_t address, char *output, size_t output_size) {
+    struct in_addr value = { .s_addr = address };
+    inet_ntop(AF_INET, &amp;value, output, output_size);
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: sudo %s &lt;incoming-interface&gt;\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    const char *incoming_interface = argv[1];
+    route_entry_t routes[MAX_ROUTES];
+    const size_t route_count = sizeof(route_definitions) / sizeof(route_definitions[0]);
+
+    if (route_count &gt; MAX_ROUTES) {
+        fprintf(stderr, "Too many routing-table entries.\n");
+        return EXIT_FAILURE;
+    }
+    if (initialise_routes(routes, route_count) &lt; 0) {
+        fprintf(stderr, "Invalid routing-table definition.\n");
+        return EXIT_FAILURE;
+    }
+
+    int socket_fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_IP));
+    if (socket_fd &lt; 0) {
+        perror("Raw socket creation failed");
+        fprintf(stderr, "Run the program using sudo.\n");
+        return EXIT_FAILURE;
+    }
+
+    int interface_index = get_interface_index(socket_fd, incoming_interface);
+    if (interface_index &lt; 0) {
+        close(socket_fd);
+        return EXIT_FAILURE;
+    }
+
+    struct sockaddr_ll bind_address;
+    memset(&amp;bind_address, 0, sizeof(bind_address));
+    bind_address.sll_family = AF_PACKET;
+    bind_address.sll_protocol = htons(ETH_P_IP);
+    bind_address.sll_ifindex = interface_index;
+
+    if (bind(socket_fd, (struct sockaddr *)&amp;bind_address, sizeof(bind_address)) &lt; 0) {
+        perror("Socket bind failed");
+        close(socket_fd);
+        return EXIT_FAILURE;
+    }
+
+    printf("========================================\n");
+    printf("IPv4 Router Processing Demonstration\n");
+    printf("========================================\n");
+    printf("Incoming interface: %s\n\n", incoming_interface);
+    printf("Configured routing table:\n");
+
+    for (size_t index = 0; index &lt; route_count; index++) {
+        char network[INET_ADDRSTRLEN];
+        char next_hop[INET_ADDRSTRLEN];
+        print_ip_address(routes[index].network, network, sizeof(network));
+        print_ip_address(routes[index].next_hop, next_hop, sizeof(next_hop));
+        printf("%s/%u via %s dev %s\n", network, routes[index].prefix_length, next_hop, routes[index].outgoing_interface);
+    }
+
+    printf("\nWaiting for an IPv4 packet...\n");
+    unsigned char buffer[BUFFER_SIZE];
 
     while (1) {
-        unsigned char buffer[65536];
-        ssize_t length = recvfrom(sockfd, buffer, sizeof(buffer), 0, NULL, NULL);
+        struct sockaddr_ll packet_information;
+        socklen_t information_length = sizeof(packet_information);
+        ssize_t received_length = recvfrom(socket_fd, buffer, sizeof(buffer), 0, (struct sockaddr *)&amp;packet_information, &amp;information_length);
 
-        if (length &lt; 0) {
-            perror("Receive failed");
-            close(sockfd);
-            return 1;
+        if (received_length &lt; 0) {
+            perror("Packet reception failed");
+            close(socket_fd);
+            return EXIT_FAILURE;
         }
 
-        struct ethhdr *recvEth = (struct ethhdr *)buffer;
-        if (ntohs(recvEth-&gt;h_proto) != ETH_P_ARP) {
-            continue;
-        }
+        if (packet_information.sll_pkttype == PACKET_OUTGOING) { continue; }
+        if ((size_t)received_length &lt; sizeof(struct ethhdr) + sizeof(struct iphdr)) { continue; }
 
-        struct arp_header *recvArp =
-            (struct arp_header *)(buffer + sizeof(struct ethhdr));
+        struct ethhdr *ethernet_header = (struct ethhdr *)buffer;
+        if (ntohs(ethernet_header-&gt;h_proto) != ETH_P_IP) { continue; }
 
-        if (ntohs(recvArp-&gt;opcode) == ARPOP_REPLY &amp;&amp;
-            memcmp(recvArp-&gt;sender_ip, targetIP, 4) == 0) {
-            printf("\n=====================================\n");
-            printf("ARP Reply Received\n");
-            printf("=====================================\n");
-            printf("Sender IP  : ");
-            printIP(recvArp-&gt;sender_ip);
-            printf("\nSender MAC : ");
-            printMAC(recvArp-&gt;sender_mac);
-            printf("\n\nMeaning: ");
-            printIP(recvArp-&gt;sender_ip);
-            printf(" is at ");
-            printMAC(recvArp-&gt;sender_mac);
-            printf("\n");
+        struct iphdr *ip_header = (struct iphdr *)(buffer + sizeof(struct ethhdr));
+        unsigned int ip_header_length = ip_header-&gt;ihl * 4U;
+
+        if (ip_header_length &lt; sizeof(struct iphdr)) { continue; }
+
+        char source_ip[INET_ADDRSTRLEN];
+        char destination_ip[INET_ADDRSTRLEN];
+        print_ip_address(ip_header-&gt;saddr, source_ip, sizeof(source_ip));
+        print_ip_address(ip_header-&gt;daddr, destination_ip, sizeof(destination_ip));
+
+        printf("\n========================================\n");
+        printf("Packet received\n");
+        printf("========================================\n");
+        printf("Source IP       : %s\n", source_ip);
+        printf("Destination IP  : %s\n", destination_ip);
+        printf("Incoming TTL    : %u\n", ip_header-&gt;ttl);
+        printf("Protocol        : %u\n", ip_header-&gt;protocol);
+        printf("Incoming checksum: 0x%04X\n", ntohs(ip_header-&gt;check));
+
+        if (ip_header-&gt;ttl &lt;= 1) {
+            printf("Router decision : Drop packet\n");
+            printf("Reason          : TTL would become zero\n");
+            printf("Expected action : Send ICMP Time Exceeded\n");
             break;
         }
+
+        const route_entry_t *selected_route = longest_prefix_match(ip_header-&gt;daddr, routes, route_count);
+
+        if (selected_route == NULL) {
+            printf("Router decision : Drop packet\n");
+            printf("Reason          : No matching route\n");
+            printf("Expected action : Send ICMP Destination Unreachable\n");
+            break;
+        }
+
+        char route_network[INET_ADDRSTRLEN];
+        char next_hop[INET_ADDRSTRLEN];
+        print_ip_address(selected_route-&gt;network, route_network, sizeof(route_network));
+        print_ip_address(selected_route-&gt;next_hop, next_hop, sizeof(next_hop));
+
+        printf("Selected route  : %s/%u\n", route_network, selected_route-&gt;prefix_length);
+
+        if (selected_route-&gt;next_hop == 0) {
+            printf("Next hop        : Directly connected destination\n");
+        } else {
+            printf("Next hop        : %s\n", next_hop);
+        }
+        printf("Outgoing interface: %s\n", selected_route-&gt;outgoing_interface);
+
+        /* Use a copy so the received packet buffer is not retransmitted or altered outside this demonstration. */
+        unsigned char modified_header[60];
+        if (ip_header_length &gt; sizeof(modified_header)) {
+            printf("IPv4 header is too large for demonstration.\n");
+            break;
+        }
+
+        memcpy(modified_header, ip_header, ip_header_length);
+        struct iphdr *forward_header = (struct iphdr *)modified_header;
+        
+        forward_header-&gt;ttl--;
+        forward_header-&gt;check = 0;
+        forward_header-&gt;check = calculate_checksum(forward_header, ip_header_length);
+
+        printf("Outgoing TTL    : %u\n", forward_header-&gt;ttl);
+        printf("New checksum    : 0x%04X\n", ntohs(forward_header-&gt;check));
+        printf("ARP requirement : Resolve the next-hop IP to a MAC address on the outgoing network.\n");
+        printf("Forwarding result: Packet is ready for re-encapsulation in a new Ethernet frame.\n");
+        break;
     }
 
-    close(sockfd);
-    return 0;
+    close(socket_fd);
+    return EXIT_SUCCESS;
 }
 </code></pre>
                 </div>
